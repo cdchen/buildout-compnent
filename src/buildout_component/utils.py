@@ -9,10 +9,10 @@ from collections import OrderedDict, MutableMapping, Mapping
 from buildout_component.errors import ImmutableValueError
 
 
-class ContextMapping(MutableMapping):
+class SimpleMapping(MutableMapping):
     def __init__(self, *args, **kwargs):
         # super().__init__(*args, **kwargs)
-        self.data = OrderedDict(*args, **kwargs)
+        self._data = OrderedDict(*args, **kwargs)
 
     def __delattr__(self, item):
         if item == 'data':
@@ -20,19 +20,19 @@ class ContextMapping(MutableMapping):
         super().__delattr__(item)
 
     def __setitem__(self, key, value):
-        self.data.__setitem__(key, value)
+        self._data.__setitem__(key, value)
 
     def __delitem__(self, key):
-        self.data.__delitem__(key)
+        self._data.__delitem__(key)
 
     def __getitem__(self, item):
-        return self.data.__getitem__(item)
+        return self._data.__getitem__(item)
 
     def __len__(self):
-        return len(self.data)
+        return len(self._data)
 
     def __iter__(self):
-        return iter(self.data)
+        return iter(self._data)
 
     def __repr__(self):
         items = ['{key}={value}'.format(
@@ -44,7 +44,7 @@ class ContextMapping(MutableMapping):
         )
 
 
-class ImmutableConfigMapping(Mapping):
+class ImmutableSimpleMapping(Mapping):
     def __setitem__(self, key, value):
         raise ImmutableValueError("The `{attr}` is immutable.".format(attr=key))
 

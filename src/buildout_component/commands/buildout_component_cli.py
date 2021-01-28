@@ -5,10 +5,12 @@
 # All rights reserved by Cd Chen.
 #
 import base64
+import configparser
 import importlib
 import json
 import os
 import pickle
+import re
 import sys
 from collections import OrderedDict
 from datetime import datetime
@@ -21,7 +23,7 @@ from buildout_component.configs import (
     BuildoutConfig, ConfigList,
 )
 from buildout_component.contexts import Context
-from buildout_component.models import Manifest
+from buildout_component.models import Manifest, Options
 
 TERMINATOR = "\x1b[0m"
 ERROR = "\x1b[1;31m [ERROR]: "
@@ -31,6 +33,7 @@ HINT = "\x1b[3;37m [HINT]: "
 SUCCESS = "\x1b[1;32m [SUCCESS]: "
 
 MANIFEST_NAME = "manifest.json"
+COMPONENT_SECTION_NAME_IN_CONFIG = 'buildout_component'
 
 
 class BaseProxyObject(wrapt.ObjectProxy):
@@ -170,7 +173,7 @@ class FinalBuildoutConfig(BaseBuildoutConfig):
         for section, data in self.items():
             lines.extend(self._render_section(section, data))
 
-        lines.extend(self._render_section('buildout_components', buildout_component))
+        lines.extend(self._render_section(COMPONENT_SECTION_NAME_IN_CONFIG, buildout_component))
 
         return '\n'.join(lines)
 
@@ -209,6 +212,12 @@ class Command(object):
             '--output-file',
             help="The output file. default=%(default)s",
             default='buildout/components/component.cfg',
+        )
+
+        parser.add_argument(
+            'defaults',
+            help="The defaults.",
+            nargs="*",
         )
 
         self.options = parser.parse_args()
@@ -295,7 +304,7 @@ class Command(object):
         if manifest.id not in self.context.collected:
             self.context.manifest = manifest.id
             self.context.config = BuildoutConfig(manifest)
-            self.context.defaults = OrderedDict(manifest.defaults)
+            self.context.defaults = self.defaults.group_by[manifest.id]
 
             options = self.collect_options(manifest)
 
@@ -314,7 +323,7 @@ class Command(object):
 
     def did_collect(self):
         final_buildout_config = FinalBuildoutConfig()
-        final_options = OrderedDict()
+        final_options = Options()
 
         for manifest_id, collected_data in self.context.collected.items():
             collected_config = collected_data.get('config')
@@ -324,16 +333,45 @@ class Command(object):
             collected_options = collected_data.get('options', {})
 
             for key, value in collected_options.items():
-                key = '{manifest}.{key}'.format(manifest=manifest_id, key=key)
-                final_options[key] = value
+                final_options.put(manifest_id, key, value)
 
         buildout_component = _ConfigSection()
-        buildout_component.meta.section = "buildout_component"
+        buildout_component.meta.section = COMPONENT_SECTION_NAME_IN_CONFIG
         buildout_component['options'] = base64.b64encode(pickle.dumps(final_options)).decode('utf-8')
         buildout_component['create_time'] = repr(str(datetime.utcnow()))
 
-        final_buildout_config['buildout_component'] = buildout_component
+        final_buildout_config[COMPONENT_SECTION_NAME_IN_CONFIG] = buildout_component
         return final_buildout_config.render()
+
+    def get_defaults(self):
+        defaults = Options()
+
+        for manifest_id, manifest in self.all_component_dict.items():
+            for key, value in manifest.defaults.items():
+                defaults.put(manifest_id, key, value)
+
+        if os.path.exists(self.options.output_file):
+            buildout_config = configparser.ConfigParser()
+            buildout_config.read(self.options.output_file)
+            if COMPONENT_SECTION_NAME_IN_CONFIG in buildout_config.sections():
+                data = buildout_config[COMPONENT_SECTION_NAME_IN_CONFIG].get('options', '')
+                if data:
+                    try:
+                        data = pickle.loads(base64.b64decode(data))
+                        if data is not None:
+                            defaults.update(data)
+                    except Exception:
+                        pass
+
+        reg = re.compile('(?P<key>[^\s=]+)=(?P<value>.*)')
+        for item in list(self.options.defaults):
+            match = reg.match(item)
+            if not match:
+                continue
+            key, value = match.group('key'), match.group('value')
+            defaults[key] = value
+
+        return defaults
 
     def execute(self):
         self.context = Context()
@@ -342,6 +380,8 @@ class Command(object):
 
         if not self.all_component_list:
             sys.exit(0)
+
+        self.defaults = self.get_defaults()
 
         self.results = OrderedDict()
 

@@ -4,7 +4,9 @@
 # 
 # All rights reserved by Cd Chen.
 #
-from collections import OrderedDict, Mapping
+from collections import OrderedDict, MutableMapping
+
+from buildout_component.utils import SimpleMapping
 
 
 class Manifest(object):
@@ -37,10 +39,57 @@ class Manifest(object):
         )
 
 
-RESULT_OPTION_NAME_SEPARATOR = '.'
+OPTION_NAME_SEPARATOR = '.'
 
 
-class Result(Mapping):
+class Options(SimpleMapping):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._group_by = OrderedDict()
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        manifest, key = self.split_key(key)
+        self._sync_group_by(manifest, key, value)
+
+    def __delitem__(self, key):
+        manifest, key = self.split_key(key)
+        if manifest in self._group_by:
+            del self._group_by[manifest][key]
+
+    def _sync_group_by(self, manifest, key, value):
+        if manifest not in self._group_by:
+            self._group_by[manifest] = OrderedDict()
+        self._group_by[manifest][key] = value
+
+    def split_key(self, key):
+        if OPTION_NAME_SEPARATOR in key:
+            key = key.split(OPTION_NAME_SEPARATOR)
+            return (key[0], ''.join(key[1:]))
+        return ("", key)
+
+    def get_key(self, manifest, key):
+        return '{manifest}{separator}{key}'.format(
+            manifest=manifest,
+            separator=OPTION_NAME_SEPARATOR,
+            key=key
+        )
+
+    def put(self, manifest, key, value):
+        self._sync_group_by(manifest, key, value)
+        key = self.get_key(manifest, key)
+        self._data[key] = value
+
+    @property
+    def flat_dict(self):
+        return OrderedDict(self._data)
+
+    @property
+    def group_by(self):
+        return OrderedDict(self._group_by)
+
+
+class Result(MutableMapping):
 
     def __init__(self, *args, **kwargs):
         # self.manifest = manifest.id if isinstance(manifest, Manifest) else manifest
@@ -63,11 +112,11 @@ class Result(Mapping):
         )
 
     def get_key(self, manifest, key):
-        if RESULT_OPTION_NAME_SEPARATOR in key:
+        if OPTION_NAME_SEPARATOR in key:
             return key
         return '{manifest}{separator}{key}'.format(
             manifest=manifest.id if isinstance(manifest, Manifest) else manifest,
-            separator=RESULT_OPTION_NAME_SEPARATOR,
+            separator=OPTION_NAME_SEPARATOR,
             key=key,
         )
 
@@ -87,8 +136,8 @@ class Result(Mapping):
     def group_by(self):
         out = OrderedDict()
         for key, value in self._data.items():
-            if RESULT_OPTION_NAME_SEPARATOR in key:
-                manifest, option_name = key.split(RESULT_OPTION_NAME_SEPARATOR)
+            if OPTION_NAME_SEPARATOR in key:
+                manifest, option_name = key.split(OPTION_NAME_SEPARATOR)
             else:
                 manifest, option_name = "", key
             contexts = out.get(manifest, None)

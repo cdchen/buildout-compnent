@@ -7,7 +7,7 @@
 from collections import UserList, OrderedDict
 
 from buildout_component.models import Manifest
-from buildout_component.utils import ContextMapping
+from buildout_component.utils import SimpleMapping
 
 
 class ConfigOptions(object):
@@ -53,16 +53,16 @@ class ConfigSectionOptions(ConfigOptions):
         self.operators.setdefault('eggs', '+=')
 
 
-class ConfigSection(ContextMapping):
+class ConfigSection(SimpleMapping):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.meta = ConfigSectionOptions()
 
 
-class BaseBuildoutConfig(ContextMapping):
+class BaseBuildoutConfig(SimpleMapping):
 
     def __getitem__(self, item):
-        data = self.data
+        data = self._data
         if not item in data:
             section = ConfigSection()
             section.meta.section = item
