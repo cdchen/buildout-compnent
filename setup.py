@@ -55,7 +55,7 @@ setup(
     install_requires=list(set(requirements)),
     setup_requires=setup_requires,
     dependency_links=dependency_links,
-    license="",
+    license="GPL-3.0 License",
     zip_safe=False,
     keywords='buildout_component',
     classifiers=[
