@@ -30,7 +30,7 @@ import buildout_component
 
 version = getattr(buildout_component, 'version', '0.1.dev0')
 
-with open('README.rst') as readme_file:
+with open('README.md') as readme_file:
     readme = readme_file.read()
 
 with open('ChangeLog.rst') as changelog_file:

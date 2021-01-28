@@ -1,2 +1,2 @@
 # buildout-compnent
-Python buildout component tool
+Python Buildout component tool
