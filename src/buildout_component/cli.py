@@ -35,6 +35,17 @@ SUCCESS = "\x1b[1;32m [SUCCESS]: "
 MANIFEST_NAME = "manifest.json"
 COMPONENT_SECTION_NAME_IN_CONFIG = 'buildout_component'
 
+HOOK_FILE_TEMPALTE = """# -*- coding: utf-8 -*-
+#
+# Buildout Component Option Hook
+#
+
+
+def collect_result(context):
+    pass
+
+"""
+
 
 class BaseProxyObject(wrapt.ObjectProxy):
     _wrapped_class = None
@@ -179,9 +190,6 @@ class FinalBuildoutConfig(BaseBuildoutConfig):
 
 
 class Command(object):
-    all_component_list = []
-    all_component_dict = OrderedDict()
-
     def __init__(self):
         try:
             import argparse
@@ -193,41 +201,89 @@ class Command(object):
             ))
             sys.exit(1)
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument(
+        common_parser = argparse.ArgumentParser(add_help=False)
+        common_parser.add_argument(
             '-p',
             '--project-root',
             help='The project root directory. default=%(default)s',
             default=os.getcwd(),
         )
-
-        parser.add_argument(
+        common_parser.add_argument(
+            '-c',
             '--components-dir',
             help='The component directory. default=%(default)s',
             default="buildout/components/",
         )
-
-        parser.add_argument(
+        common_parser.add_argument(
             '-o',
             '--output-file',
             help="The output file. default=%(default)s",
             default='buildout/components/component.cfg',
         )
 
-        parser.add_argument(
+        parser = argparse.ArgumentParser()
+
+        subparsers = parser.add_subparsers()
+
+        # collect sub-command
+        collect_parser = subparsers.add_parser(
+            "collect",
+            help="Collect all options of components.",
+            parents=[common_parser]
+        )
+        collect_parser.add_argument(
             'defaults',
             help="The defaults.",
             nargs="*",
         )
+        collect_parser.set_defaults(func=self.collect)
 
-        self.options = parser.parse_args()
+        # show-defaults subcommand
+        show_defaults_parser = subparsers.add_parser(
+            'show-defaults',
+            help="Show all defaults.",
+            parents=[common_parser],
+        )
+        show_defaults_parser.set_defaults(func=self.show_defaults)
 
-        setup_path = lambda p: p if os.path.isabs(p) else os.path.join(self.options.project_root, p)
+        # create-component subcommand
+        create_component_parser = subparsers.add_parser(
+            'create',
+            help="Create component materials.",
+            parents=[common_parser],
+        )
+        create_component_parser.add_argument(
+            '--id',
+            help="The id of component."
+        )
+        create_component_parser.add_argument(
+            '--name',
+            help="The name of component.",
+        )
+        create_component_parser.add_argument(
+            '--section',
+            help="The section of component.",
+        )
+        create_component_parser.add_argument(
+            '--dependencies',
+            help="The dependencies components.",
+            nargs="*"
+        )
+        create_component_parser.add_argument(
+            '--disable-create-hooks',
+            help="Disable create hook files.",
+            action="store_true",
+        )
+        create_component_parser.add_argument(
+            'option',
+            help="The option names. format: <NAME>[=<VALUE>]",
+            nargs="*",
+        )
+        create_component_parser.set_defaults(func=self.create_component)
 
-        self.options.components_dir = setup_path(self.options.components_dir)
-        self.options.output_file = setup_path(self.options.output_file)
+        self.parser = parser
 
-    def scan_components(self):
+    def _scan_components(self):
         all_component_list = []
         all_component_dict = OrderedDict()
 
@@ -265,9 +321,9 @@ class Command(object):
     def _default_collect_result_handler(self, manifest, name):
         return manifest.defaults.get(name, None)
 
-    def collect_options(self, manifest):
+    def _collect_options(self, manifest):
         options = OrderedDict()
-        module_name_prefix = self.get_component_python_module_name()
+        module_name_prefix = self._get_component_python_module_name()
 
         for option_name in manifest.options:
             try:
@@ -294,56 +350,29 @@ class Command(object):
             options.update(result)
         return options
 
-    def collect(self, manifest):
+    def _collect_manifest(self, manifest):
         for dependency in manifest.dependencies:
             dependency = self.all_component_dict.get(dependency, None)
             if not dependency:
                 continue
-            self.collect(dependency)
+            self._collect_manifest(dependency)
 
         if manifest.id not in self.context.collected:
             self.context.manifest = manifest.id
             self.context.config = BuildoutConfig(manifest)
             self.context.defaults = self.defaults.group_by[manifest.id]
 
-            options = self.collect_options(manifest)
+            options = self._collect_options(manifest)
 
             self.context.collected[manifest.id] = OrderedDict({
                 'config': self.context.config,
                 'options': options
             })
 
-    def get_component_python_module_name(self):
+    def _get_component_python_module_name(self):
         return os.path.basename(os.path.abspath(self.options.components_dir))
 
-    def will_collect(self):
-        python_sys_path = os.path.dirname(os.path.abspath(self.options.components_dir))
-        if python_sys_path not in sys.path:
-            sys.path.insert(0, python_sys_path)
-
-    def did_collect(self):
-        final_buildout_config = FinalBuildoutConfig()
-        final_options = Options()
-
-        for manifest_id, collected_data in self.context.collected.items():
-            collected_config = collected_data.get('config')
-
-            final_buildout_config.merge(collected_config)
-
-            collected_options = collected_data.get('options', {})
-
-            for key, value in collected_options.items():
-                final_options.put(manifest_id, key, value)
-
-        buildout_component = _ConfigSection()
-        buildout_component.meta.section = COMPONENT_SECTION_NAME_IN_CONFIG
-        buildout_component['options'] = base64.b64encode(pickle.dumps(final_options)).decode('utf-8')
-        buildout_component['create_time'] = repr(str(datetime.utcnow()))
-
-        final_buildout_config[COMPONENT_SECTION_NAME_IN_CONFIG] = buildout_component
-        return final_buildout_config.render()
-
-    def get_defaults(self):
+    def _get_defaults(self):
         defaults = Options()
 
         for manifest_id, manifest in self.all_component_dict.items():
@@ -363,35 +392,162 @@ class Command(object):
                     except Exception:
                         pass
 
-        reg = re.compile('(?P<key>[^\s=]+)=(?P<value>.*)')
-        for item in list(self.options.defaults):
-            match = reg.match(item)
-            if not match:
-                continue
-            key, value = match.group('key'), match.group('value')
-            defaults[key] = value
+        if hasattr(self.options, 'defaults'):
+            reg = re.compile('(?P<key>[^\s=]+)=(?P<value>.*)')
+            for item in list(self.options.defaults):
+                match = reg.match(item)
+                if not match:
+                    continue
+                key, value = match.group('key'), match.group('value')
+                defaults[key] = value
 
         return defaults
 
-    def execute(self):
+    def collect(self):
         self.context = Context()
 
-        self.scan_components()
+        self._scan_components()
 
         if not self.all_component_list:
             sys.exit(0)
 
-        self.defaults = self.get_defaults()
+        self.defaults = self._get_defaults()
 
         self.results = OrderedDict()
 
-        self.will_collect()
-        for manifest in self.all_component_list:
-            self.collect(manifest)
-        rendered_data = self.did_collect()
+        python_sys_path = os.path.dirname(os.path.abspath(self.options.components_dir))
+        if python_sys_path not in sys.path:
+            sys.path.insert(0, python_sys_path)
 
+        for manifest in self.all_component_list:
+            self._collect_manifest(manifest)
+
+        final_buildout_config = FinalBuildoutConfig()
+        final_options = Options()
+
+        for manifest_id, collected_data in self.context.collected.items():
+            collected_config = collected_data.get('config')
+
+            final_buildout_config.merge(collected_config)
+
+            collected_options = collected_data.get('options', {})
+
+            for key, value in collected_options.items():
+                final_options.put(manifest_id, key, value)
+
+        buildout_component = _ConfigSection()
+        buildout_component.meta.section = COMPONENT_SECTION_NAME_IN_CONFIG
+        buildout_component['options'] = base64.b64encode(pickle.dumps(final_options)).decode('utf-8')
+        buildout_component['create_time'] = repr(str(datetime.utcnow()))
+
+        final_buildout_config[COMPONENT_SECTION_NAME_IN_CONFIG] = buildout_component
+        rendered_data = final_buildout_config.render()
+
+        action = "Update" if os.path.exists(self.options.output_file) else "Create"
         with open(self.options.output_file, 'w') as fp:
             fp.write(rendered_data)
+
+        print(SUCCESS + "{action} {output_file} success. ".format(
+            action=action,
+            output_file=self.options.output_file
+        ) + TERMINATOR)
+
+    def show_defaults(self):
+        self._scan_components()
+        self.defaults = self._get_defaults()
+        for key, value in self.defaults.flat_dict.items():
+            print("{key}={value}".format(key=key, value=repr(value)))
+
+    def create_component(self):
+        """
+
+            --id
+            --name
+            --section
+            --dependencies
+
+            option
+
+        :return:
+        """
+
+        try:
+            _id = self.options.id
+            while not _id:
+                _id = input("Component ID: ").strip()
+                component_dir = os.path.join(self.options.components_dir, _id)
+                if os.path.exists(component_dir):
+                    sys.stderr.write(WARNING + "Component directory is existed." + TERMINATOR + "\n")
+                    _id = False
+
+            _name = self.options.name
+            if not _name:
+                _name = input("Component Name: ").strip()
+
+            section = input("Component section: [{section}] ".format(section=self.options.section or _id))
+            if not section:
+                section = _id
+
+        except KeyboardInterrupt:
+            sys.stderr.write("\n" + WARNING + "User break. " + TERMINATOR + "\n")
+            sys.exit(1)
+
+        component_dir = os.path.join(self.options.components_dir, _id)
+        defaults = OrderedDict()
+        options = []
+        for option in self.options.option:
+            option = option.strip().split('=')
+            if len(option) == 1:
+                name, value = option[0], None
+            else:
+                name, value = option[0], ''.join(option[1:])
+            options.append(name)
+            defaults[name] = value
+
+        dependencies = self.options.dependencies
+
+        manifest = Manifest()
+        manifest.id = _id
+        manifest.name = _name
+        manifest.section = section
+        manifest.options = options
+        manifest.defaults = defaults
+        manifest.dependencies = dependencies
+        data = json.dumps(manifest.serialize(), indent=4)
+
+        line = '-' * 60
+        print("Manifest: ")
+        print(line)
+        print(data)
+        print(line)
+        ans = input("Sure ? [y/N] ")
+        if ans.lower() != 'y':
+            sys.stderr.write(WARNING + "Break." + TERMINATOR + "\n")
+            sys.exit(1)
+        os.makedirs(component_dir)
+        with open(os.path.join(component_dir, MANIFEST_NAME), "w") as fp:
+            fp.write(data)
+
+        hooks_dir = os.path.join(component_dir, "hooks")
+        os.makedirs(hooks_dir)
+        for option in options:
+            with open(os.path.join(hooks_dir, '{option}.py'.format(option=option)), "w") as fp:
+                fp.write(HOOK_FILE_TEMPALTE)
+
+        print(SUCCESS + "Component create success." + TERMINATOR)
+
+    def execute(self):
+        self.options = self.parser.parse_args()
+
+        if hasattr(self.options, 'func'):
+            setup_path = lambda p: p if os.path.isabs(p) else os.path.join(self.options.project_root, p)
+
+            self.options.components_dir = setup_path(self.options.components_dir)
+            self.options.output_file = setup_path(self.options.output_file)
+
+            self.options.func()
+        else:
+            self.parser.print_help()
 
 
 def main():

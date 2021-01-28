@@ -8,6 +8,8 @@ from collections import OrderedDict, MutableMapping
 
 from buildout_component.utils import SimpleMapping
 
+OPTION_NAME_SEPARATOR = '.'
+
 
 class Manifest(object):
     id = ""
@@ -38,8 +40,15 @@ class Manifest(object):
             title=self.title
         )
 
-
-OPTION_NAME_SEPARATOR = '.'
+    def serialize(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'section': self.section,
+            'options': self.options,
+            'defaults': self.defaults,
+            'dependencies': self.dependencies,
+        }
 
 
 class Options(SimpleMapping):
