@@ -1,9 +1,7 @@
-<<<<<<< HEAD
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-=======
 # Created by http://www.gitignore.io
 
 ### Python ###
@@ -12,7 +10,6 @@ __pycache__/
 *.py[cod]
 
 .DS_Store
->>>>>>> 359a9c0 (First commit)
 
 # C extensions
 *.so
@@ -44,7 +41,6 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
-=======
 /venv
 /env
 /bin
@@ -62,14 +58,12 @@ MANIFEST
 *.egg-info/
 /.installed.cfg
 *.egg
->>>>>>> 359a9c0 (First commit)
 
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
 
 # Unit test / coverage reports
-<<<<<<< HEAD
 htmlcov/
 .tox/
 .nox/
@@ -159,7 +153,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-=======
 .tox/
 .coverage
 .cache
@@ -236,4 +229,3 @@ celerybeat.pid
 /tmp
 
 /examples/buildout/components/component.cfg
->>>>>>> 359a9c0 (First commit)
