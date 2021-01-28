@@ -1,0 +1,12 @@
+{
+    "title": "Foo",
+    "options": [
+        "option1",
+        "option2"
+    ],
+    "defaults": {
+        "value1": "value1",
+        "option2": "o2",
+        "option1": "o1"
+    }
+}

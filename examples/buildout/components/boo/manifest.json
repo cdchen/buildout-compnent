@@ -1,0 +1,9 @@
+{
+    "options": [
+        "option100"
+    ],
+    "dependencies": [
+        "foo"
+    ],
+    "title": "Boo"
+}
