@@ -15,8 +15,8 @@ componentized environment of Buildout more conveniently.
 
 ## Features
 
--Generate the file structure of Buildout Component; -Through the question and answer method, to generate the Buildout
-profile.
+- Generate the file structure of Buildout Component;
+- Through the question and answer method, to generate the Buildout profile.
 
 ## Installation
 
