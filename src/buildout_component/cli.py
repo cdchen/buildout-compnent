@@ -11,6 +11,7 @@ import json
 import os
 import pickle
 import re
+import shutil
 import sys
 from collections import OrderedDict
 from datetime import datetime
@@ -339,6 +340,8 @@ class Command(object):
 
     def _collect_options(self, manifest):
         options = OrderedDict()
+        hooks_dir = os.path.join(self.options.components_dir, manifest.component_dir, HOOKS_DIR_NAME)
+
         module_name_prefix = self._get_component_python_module_name()
 
         for option_name in manifest.options:
@@ -358,6 +361,7 @@ class Command(object):
                     result = handler(self.context)
                 else:
                     raise ImportError()
+
             except ImportError:
                 result = self._default_collect_result_handler(manifest, option_name)
             except Exception as exc:
@@ -368,11 +372,20 @@ class Command(object):
                 )
                 sys.stderr.write(ERROR + message + TERMINATOR + "\n")
                 raise exc
+            finally:
+                hook_file = os.path.join(hooks_dir, '{option_name}.pyc')
+                if os.path.exists(hook_file):
+                    os.remove(hook_file)
 
             if not isinstance(result, dict):
                 result = {option_name: result}
 
             options.update(result)
+
+        if os.path.exists(hooks_dir):
+            py_cache_dir = os.path.join(hooks_dir, '__pycache__')
+            shutil.rmtree(py_cache_dir, False)
+
         return options
 
     def _setup_manifest(self, manifest):
