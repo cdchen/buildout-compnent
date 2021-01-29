@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 
 
-def collect_result(context):
+def setup_option(context):
     config = context.config
 
     manifest = config.manifest

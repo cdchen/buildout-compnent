@@ -32,17 +32,17 @@ MANIFEST_NAME = "manifest.json"
 COMPONENT_SECTION_NAME_IN_CONFIG = 'buildout_component'
 
 HOOKS_DIR_NAME = "hooks"
-
+HOOK_FUNC_NAME = 'setup_option'
 HOOK_FILE_TEMPLATE = """# -*- coding: utf-8 -*-
 #
 # Buildout Component Option Hook
 #
 
 
-def collect_result(context):
+def {hook_func_name}(context):
     pass
 
-"""
+""".format(hook_func_name=HOOK_FUNC_NAME)
 
 
 class BaseProxyObject(wrapt.ObjectProxy):
@@ -130,7 +130,7 @@ class FinalBuildoutConfig(BaseBuildoutConfig):
     def _merge_with_key_value(self, key, another):
         my_value = self.get(key, None)
         if my_value is None:
-            my_value = ConfigSection()
+            return
         if not isinstance(my_value, ConfigSection):
             my_value = ConfigSection(another)
 
@@ -182,7 +182,10 @@ class FinalBuildoutConfig(BaseBuildoutConfig):
         for section, data in self.items():
             lines.extend(self._render_section(section, data, padding=padding))
 
-        lines.extend(self._render_section(COMPONENT_SECTION_NAME_IN_CONFIG, buildout_component, padding=padding))
+        lines.extend(self._render_section(
+            COMPONENT_SECTION_NAME_IN_CONFIG,
+            buildout_component,
+            padding=padding))
 
         return '\n'.join(lines)
 
@@ -224,25 +227,23 @@ class Command(object):
         subparsers = parser.add_subparsers()
 
         # collect sub-command
-        collect_parser = subparsers.add_parser(
-            "collect",
-            help="Collect all options of components.",
+        setup_parser = subparsers.add_parser(
+            "setup",
+            help="Setup all options of components.",
             parents=[common_parser]
         )
-        collect_parser.add_argument(
+        setup_parser.add_argument(
+            '--include-disabled',
+            help="Include component that disabled.",
+            default=False,
+            action="store_true",
+        )
+        setup_parser.add_argument(
             'defaults',
             help="The defaults.",
             nargs="*",
         )
-        collect_parser.set_defaults(func=self.collect)
-
-        # show-defaults subcommand
-        show_defaults_parser = subparsers.add_parser(
-            'show-defaults',
-            help="Show all defaults.",
-            parents=[common_parser],
-        )
-        show_defaults_parser.set_defaults(func=self.show_defaults)
+        setup_parser.set_defaults(func=self.execute_setup)
 
         # create-component subcommand
         create_component_parser = subparsers.add_parser(
@@ -277,7 +278,15 @@ class Command(object):
             help="The option names. format: <NAME>[=<VALUE>]",
             nargs="*",
         )
-        create_component_parser.set_defaults(func=self.create_component)
+        create_component_parser.set_defaults(func=self.execute_create)
+
+        # show-options subcommand
+        show_options_parser = subparsers.add_parser(
+            'show-options',
+            help="Show options.",
+            parents=[common_parser],
+        )
+        show_options_parser.set_defaults(func=self.execute_show_options)
 
         self.parser = parser
 
@@ -292,26 +301,35 @@ class Command(object):
             if not os.path.isdir(dir_path):
                 continue
             manifest_path = os.path.join(dir_path, MANIFEST_NAME)
-            if os.path.exists(manifest_path):
-                with open(manifest_path, "r") as fp:
-                    manifest = json.load(fp)
-                    if not manifest:
-                        continue
-                    if not isinstance(manifest, dict):
-                        continue
+            if not os.path.exists(manifest_path):
+                continue
 
-                    if not manifest.get('id', ''):
-                        manifest['id'] = dir_name.lower().replace("-", '_')
-                    manifest.update({
-                        'component_dir': dir_name,
-                        'manifest_path': manifest_path,
-                    })
-                    manifest = Manifest(**manifest)
+            with open(manifest_path, "r") as fp:
+                manifest = json.load(fp)
+                if not manifest:
+                    continue
+                if not isinstance(manifest, dict):
+                    continue
 
-                    manifest.hooks_dir_existed = os.path.exists(os.path.join(dir_path, HOOKS_DIR_NAME))
+                if not manifest.get('id', ''):
+                    manifest['id'] = dir_name.lower().replace("-", '_')
 
-                    all_component_list.append(manifest)
-                    all_component_dict[manifest.id] = manifest
+                disabled = manifest.get('disabled', False)
+                if disabled and not getattr(self.options, 'include_disabled', False):
+                    sys.stderr.write(WARNING + "Component `{id}` is disabled.".format(id=manifest['id']) + TERMINATOR)
+                    continue
+
+                manifest.update({
+                    'component_dir': dir_name,
+                    'manifest_path': manifest_path,
+                })
+
+                manifest = Manifest(**manifest)
+
+                manifest.hooks_dir_existed = os.path.exists(os.path.join(dir_path, HOOKS_DIR_NAME))
+
+                all_component_list.append(manifest)
+                all_component_dict[manifest.id] = manifest
 
         self.all_component_list = all_component_list
         self.all_component_dict = all_component_dict
@@ -335,13 +353,21 @@ class Command(object):
                     option_name=option_name,
                 )
                 module = importlib.import_module(module_name)
-                handler = getattr(module, 'collect_result', None)
+                handler = getattr(module, HOOK_FUNC_NAME, None)
                 if handler:
                     result = handler(self.context)
                 else:
                     raise ImportError()
             except ImportError:
                 result = self._default_collect_result_handler(manifest, option_name)
+            except Exception as exc:
+                message = "Execute `{component}.{option_name}` setup option fail: {exc}".format(
+                    exc=exc,
+                    component=manifest.id,
+                    option_name=option_name,
+                )
+                sys.stderr.write(ERROR + message + TERMINATOR + "\n")
+                raise exc
 
             if not isinstance(result, dict):
                 result = {option_name: result}
@@ -349,17 +375,17 @@ class Command(object):
             options.update(result)
         return options
 
-    def _collect_manifest(self, manifest):
+    def _setup_manifest(self, manifest):
         for dependency in manifest.dependencies:
             dependency = self.all_component_dict.get(dependency, None)
             if not dependency:
                 continue
-            self._collect_manifest(dependency)
+            self._setup_manifest(dependency)
 
         if manifest.id not in self.context.collected:
             self.context.manifest = manifest.id
             self.context.config = BuildoutConfig(manifest)
-            self.context.defaults = self.defaults.group_by[manifest.id]
+            self.context.defaults = self.defaults.group_by.get(manifest.id, {})
 
             options = self._collect_options(manifest)
 
@@ -402,7 +428,7 @@ class Command(object):
 
         return defaults
 
-    def collect(self):
+    def execute_setup(self):
         self.context = Context()
 
         self._scan_components()
@@ -419,7 +445,7 @@ class Command(object):
             sys.path.insert(0, python_sys_path)
 
         for manifest in self.all_component_list:
-            self._collect_manifest(manifest)
+            self._setup_manifest(manifest)
 
         final_buildout_config = FinalBuildoutConfig()
         final_options = Options()
@@ -434,15 +460,19 @@ class Command(object):
             for key, value in collected_options.items():
                 final_options.put(manifest_id, key, value)
 
-        buildout_component = _ConfigSection(section=COMPONENT_SECTION_NAME_IN_CONFIG)
+        create_time = datetime.utcnow()
+        buildout_component = _ConfigSection()
         buildout_component['options'] = base64.b64encode(pickle.dumps(final_options)).decode('utf-8')
-        buildout_component['create_time'] = repr(str(datetime.utcnow()))
+        buildout_component['create_time'] = repr(str(create_time))
 
         final_buildout_config[COMPONENT_SECTION_NAME_IN_CONFIG] = buildout_component
         rendered_data = final_buildout_config.render()
 
         action = "Update" if os.path.exists(self.options.output_file) else "Create"
         with open(self.options.output_file, 'w') as fp:
+            fp.write("# The buildout component configure file.\n")
+            fp.write("# *** DO NOT EDIT THIS FILE, IT WILL GENERATE BY `{prog}`\n".format(prog=sys.argv[0]))
+            fp.write("# Create Time: {create_time}\n".format(create_time=create_time))
             fp.write(rendered_data)
 
         print(SUCCESS + "{action} {output_file} success. ".format(
@@ -450,25 +480,7 @@ class Command(object):
             output_file=self.options.output_file
         ) + TERMINATOR)
 
-    def show_defaults(self):
-        self._scan_components()
-        self.defaults = self._get_defaults()
-        for key, value in self.defaults.flat_dict.items():
-            print("{key}={value}".format(key=key, value=repr(value)))
-
-    def create_component(self):
-        """
-
-            --id
-            --name
-            --section
-            --dependencies
-
-            option
-
-        :return:
-        """
-
+    def execute_create(self):
         try:
             _id = self.options.id
             while not _id:
@@ -486,53 +498,75 @@ class Command(object):
             if not section:
                 section = _id
 
+            disabled = input("Disabled: [y/N] ").lower()
+            disabled = disabled in ("yes", "y")
+
+            # Start create component directory and files.
+            component_dir = os.path.join(self.options.components_dir, _id)
+            defaults = OrderedDict()
+            options = []
+            for option in self.options.option:
+                option = option.strip().split('=')
+                if len(option) == 1:
+                    name, value = option[0], None
+                else:
+                    name, value = option[0], ''.join(option[1:])
+                options.append(name)
+                defaults[name] = value
+
+            dependencies = self.options.dependencies
+
+            manifest = Manifest()
+            manifest.id = _id
+            manifest.name = _name
+            manifest.section = section
+            manifest.options = options
+            manifest.defaults = defaults
+            manifest.disabled = disabled
+            if dependencies:
+                manifest.dependencies = dependencies
+
+            data = json.dumps(manifest.serialize(), indent=4)
+
+            line = '-' * 60
+            print("Manifest: ")
+            print(line)
+            print(data)
+            print(line)
+            ans = input("Sure ? [y/N] ")
+            if ans.lower() != 'y':
+                sys.stderr.write(WARNING + "Break." + TERMINATOR + "\n")
+                sys.exit(1)
+            os.makedirs(component_dir)
+            with open(os.path.join(component_dir, MANIFEST_NAME), "w") as fp:
+                fp.write(data)
+
+            hooks_dir = os.path.join(component_dir, HOOKS_DIR_NAME)
+            os.makedirs(hooks_dir)
+            for option in options:
+                hook_file_path = os.path.join(hooks_dir, '{option}.py'.format(option=option))
+                if not os.path.exists(hook_file_path):
+                    with open(hook_file_path, "w") as fp:
+                        fp.write(HOOK_FILE_TEMPLATE)
+
+            print(SUCCESS + "Component create success." + TERMINATOR)
         except KeyboardInterrupt:
             sys.stderr.write("\n" + WARNING + "User break. " + TERMINATOR + "\n")
             sys.exit(1)
 
-        component_dir = os.path.join(self.options.components_dir, _id)
-        defaults = OrderedDict()
-        options = []
-        for option in self.options.option:
-            option = option.strip().split('=')
-            if len(option) == 1:
-                name, value = option[0], None
-            else:
-                name, value = option[0], ''.join(option[1:])
-            options.append(name)
-            defaults[name] = value
+    def execute_show_options(self):
+        if not os.path.exists(self.options.output_file):
+            return
 
-        dependencies = self.options.dependencies
-
-        manifest = Manifest()
-        manifest.id = _id
-        manifest.name = _name
-        manifest.section = section
-        manifest.options = options
-        manifest.defaults = defaults
-        manifest.dependencies = dependencies
-        data = json.dumps(manifest.serialize(), indent=4)
-
-        line = '-' * 60
-        print("Manifest: ")
-        print(line)
-        print(data)
-        print(line)
-        ans = input("Sure ? [y/N] ")
-        if ans.lower() != 'y':
-            sys.stderr.write(WARNING + "Break." + TERMINATOR + "\n")
-            sys.exit(1)
-        os.makedirs(component_dir)
-        with open(os.path.join(component_dir, MANIFEST_NAME), "w") as fp:
-            fp.write(data)
-
-        hooks_dir = os.path.join(component_dir, HOOKS_DIR_NAME)
-        os.makedirs(hooks_dir)
-        for option in options:
-            with open(os.path.join(hooks_dir, '{option}.py'.format(option=option)), "w") as fp:
-                fp.write(HOOK_FILE_TEMPLATE)
-
-        print(SUCCESS + "Component create success." + TERMINATOR)
+        config = configparser.ConfigParser()
+        config.read(self.options.output_file)
+        if COMPONENT_SECTION_NAME_IN_CONFIG in config:
+            options = config[COMPONENT_SECTION_NAME_IN_CONFIG].get('options', '')
+            if not options:
+                return
+            options = pickle.loads(base64.b64decode(options))
+            for key, value in options.items():
+                print("{key}={value}".format(key=key, value=repr(value)))
 
     def execute(self):
         self.options = self.parser.parse_args()

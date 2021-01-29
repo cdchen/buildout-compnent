@@ -5,7 +5,7 @@
 # All rights reserved by Cd Chen.
 #
 
-def collect_result(context):
+def setup_option(context):
     return {
         'option2_1': '21',
         'option2_2': '22',

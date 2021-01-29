@@ -22,6 +22,7 @@ class Manifest(object):
     options = []
     defaults = {}
     dependencies = []
+    disabled = False
 
     component_dir = ""
     manifest_path = ""
@@ -54,6 +55,7 @@ class Manifest(object):
             'section': self.section,
             'options': self.options,
             'defaults': self.defaults,
+            'disabled': self.disabled,
             'dependencies': self.dependencies,
         }
 
@@ -144,8 +146,7 @@ class ConfigComment(ConfigItem):
 
 
 class ConfigSection(SimpleMapping):
-    def __init__(self, section="", *args, **kwargs):
-        self.section = section
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.operators = OrderedDict()
         self.operators.setdefault('eggs', '+=')
