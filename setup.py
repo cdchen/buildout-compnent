@@ -28,7 +28,7 @@ sys.path.append(os.path.join(project_dir, source_dirname))
 
 import buildout_component
 
-version = getattr(buildout_component, 'version', '0.1.dev0')
+version = getattr(buildout_component, '__version__', '0.1.dev0')
 
 with open('README.md') as readme_file:
     readme = readme_file.read()
