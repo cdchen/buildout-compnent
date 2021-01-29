@@ -25,10 +25,15 @@ Buildout 是個很棒的 Python 開發與部署環境的工具，但需要大量
 
 安裝完畢後，可執行 `buildout-component` 指令:
 
-    $ buildout-component
+- 設定
 
+        $ buildout-component setup
 
+- 顯示設定值
 
+        $ buildout-component show-options
 
+- 建立 Component
 
-
+        $ buildout-component create
+    

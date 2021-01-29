@@ -253,11 +253,11 @@ class Command(object):
         )
         create_component_parser.add_argument(
             '--id',
-            help="The id of component."
+            help="The id of component.",
         )
         create_component_parser.add_argument(
-            '--name',
-            help="The name of component.",
+            '--title',
+            help="The title of component.",
         )
         create_component_parser.add_argument(
             '--section',
@@ -266,12 +266,12 @@ class Command(object):
         create_component_parser.add_argument(
             '--dependencies',
             help="The dependencies components.",
-            nargs="*"
+            nargs="*",
         )
         create_component_parser.add_argument(
             '--disable-create-hooks',
             help="Disable create hook files.",
-            action="store_true",
+            action="store_true"
         )
         create_component_parser.add_argument(
             'option',
@@ -490,9 +490,9 @@ class Command(object):
                     sys.stderr.write(WARNING + "Component directory is existed." + TERMINATOR + "\n")
                     _id = False
 
-            _name = self.options.name
-            if not _name:
-                _name = input("Component Name: ").strip()
+            _title = self.options.title
+            if not _title:
+                _title = input("Component Title: ").strip()
 
             section = input("Component section: [{section}] ".format(section=self.options.section or _id))
             if not section:
@@ -518,7 +518,7 @@ class Command(object):
 
             manifest = Manifest()
             manifest.id = _id
-            manifest.name = _name
+            manifest.title = _title
             manifest.section = section
             manifest.options = options
             manifest.defaults = defaults

@@ -8,25 +8,34 @@ Buildout is a great tool for Python development and deployment environment, but 
 well.
 
 I am used to Buildout each reusable item as a component. If there is a component that needs to be reused, just copy its
-content to a new project to use it directly, but this still requires manual settings and configuration.
+content to a new project to use it directly, but it still depends on manual settings and configuration.
 
-In order to simplify the complicated settings, I wrote a tool called `buildout-component` to help me set up the buildout
-component environment more conveniently.
+In order to simplify the complicated settings, I wrote a gadget called `buildout-component` to help me set up the
+componentized environment of Buildout more conveniently.
 
 ## Features
 
-- Generate the file structure of Buildout Component;
-- Through the question and answer method, to generate the Buildout profile.
+-Generate the file structure of Buildout Component; -Through the question and answer method, to generate the Buildout
+profile.
 
 ## Installation
 
 Install `buildout-component`:
 
-     $ pip install buildout-component
+    $ pip install buildout-component
 
 ## Use
 
 After installation, you can execute the `buildout-component` command:
 
-     $ buildout-component
+- set up
 
+        $ buildout-component setup
+
+- Display set value
+
+        $ buildout-component show-options
+
+- Create Component
+
+        $ buildout-component create
