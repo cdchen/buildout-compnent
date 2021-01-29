@@ -4,7 +4,8 @@
 # 
 # All rights reserved by Cd Chen.
 #
-from collections import OrderedDict, MutableMapping
+import os
+from collections import OrderedDict, UserList
 
 from buildout_component.utils import SimpleMapping
 
@@ -12,6 +13,9 @@ OPTION_NAME_SEPARATOR = '.'
 
 
 class Manifest(object):
+    """
+    The component's manifest data class.
+    """
     id = ""
     title = ""
     section = ""
@@ -39,6 +43,9 @@ class Manifest(object):
             id=self.id,
             title=self.title
         )
+
+    def join(self, filename):
+        return os.path.join(self.component_dir, filename)
 
     def serialize(self):
         return {
@@ -98,61 +105,77 @@ class Options(SimpleMapping):
         return OrderedDict(self._group_by)
 
 
-class Result(MutableMapping):
+class ConfigOptions(object):
+    """
+    Config options class.
+    """
 
-    def __init__(self, *args, **kwargs):
-        # self.manifest = manifest.id if isinstance(manifest, Manifest) else manifest
-        self._data = OrderedDict(*args, **kwargs)
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
 
-    def __getitem__(self, key):
-        return self._data.get(key)
 
-    def __len__(self):
-        return len(self._data)
+class ConfigItem(object):
+    """
+    The value of Config.
+    """
 
-    def __iter__(self):
-        return iter(self._data)
+
+class ConfigList(ConfigItem, UserList):
+    pass
+
+
+class ConfigComment(ConfigItem):
+    def __init__(self, data):
+        self.data = data
+
+    def __hash__(self):
+        return hash(self.data)
+
+    def __str__(self):
+        return '# {data} '.format(data=self.data)
 
     def __repr__(self):
-        items = ['{key}={value}'.format(key=k, value=repr(v)) for k, v in self._data.items()]
-        return '{class_name}({items})'.format(
+        return '{class_name}(data={data})'.format(
             class_name=self.__class__.__name__,
-            items=', '.join(items)
+            data=repr(self.data),
         )
 
-    def get_key(self, manifest, key):
-        if OPTION_NAME_SEPARATOR in key:
-            return key
-        return '{manifest}{separator}{key}'.format(
-            manifest=manifest.id if isinstance(manifest, Manifest) else manifest,
-            separator=OPTION_NAME_SEPARATOR,
-            key=key,
-        )
 
-    def put(self, manifest, key, value):
-        key = self.get_key(manifest, key)
-        self._data[key] = value
+class ConfigSection(SimpleMapping):
+    def __init__(self, section="", *args, **kwargs):
+        self.section = section
+        super().__init__(*args, **kwargs)
+        self.operators = OrderedDict()
+        self.operators.setdefault('eggs', '+=')
+        self.operators.setdefault('parts', '+=')
 
-    def empty(self, manifest, key):
-        key = self.get_key(manifest, key)
-        if key in self._data:
-            del self._data[key]
 
-    def put_all(self, manifest, results):
-        for key, value in results.items():
-            self.put(manifest, key, value)
+class BaseBuildoutConfig(SimpleMapping):
 
-    def group_by(self):
-        out = OrderedDict()
-        for key, value in self._data.items():
-            if OPTION_NAME_SEPARATOR in key:
-                manifest, option_name = key.split(OPTION_NAME_SEPARATOR)
-            else:
-                manifest, option_name = "", key
-            contexts = out.get(manifest, None)
-            if contexts is None:
-                contexts = OrderedDict()
-                out[manifest] = contexts
+    def __getitem__(self, item):
+        data = self._data
+        if not item in data:
+            section = ConfigSection()
+            section.section = item
+            data[item] = section
+        return data[item]
 
-            contexts[option_name] = value
-        return out
+    def __setitem__(self, key, value):
+        if not isinstance(value, ConfigSection):
+            value = ConfigSection(value)
+        value.section = key
+        super().__setitem__(key, value)
+
+
+class BuildoutConfig(BaseBuildoutConfig):
+    def __init__(self, manifest, *args, **kwargs):
+        assert manifest is not None, "The `manifest` argument is required."
+        assert isinstance(manifest, Manifest), "The `manifest` argument must be instance of `Manifest`"
+
+        self.manifest = manifest
+        super().__init__(*args, **kwargs)
+
+    def create_comment(self, value):
+        return ConfigComment(value)

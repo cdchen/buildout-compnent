@@ -12,11 +12,11 @@ test_requirements = [
 ]
 
 setup_requires = [
-	# TODO: put package for setup requirements here
+    # TODO: put package for setup requirements here
 ]
 
 dependency_links = [
-	# TODO: put package dependency links here
+    # TODO: put package dependency links here
 ]
 
 import os
@@ -24,7 +24,7 @@ import sys
 
 project_dir = os.path.dirname(__file__)
 sys.path.append(os.path.join(project_dir, source_dirname))
-#os.environ.setdefault('RUN_SETUP', 'True')
+# os.environ.setdefault('RUN_SETUP', 'True')
 
 import buildout_component
 

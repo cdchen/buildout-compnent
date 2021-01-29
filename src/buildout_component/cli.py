@@ -17,13 +17,9 @@ from datetime import datetime
 
 import wrapt as wrapt
 
-from buildout_component.configs import (
-    ConfigSection as _ConfigSection,
-    BaseBuildoutConfig,
-    BuildoutConfig, ConfigList,
-)
 from buildout_component.contexts import Context
-from buildout_component.models import Manifest, Options
+from buildout_component.models import Manifest, Options, ConfigList, ConfigSection as _ConfigSection, \
+    BaseBuildoutConfig, BuildoutConfig
 
 TERMINATOR = "\x1b[0m"
 ERROR = "\x1b[1;31m [ERROR]: "
@@ -35,7 +31,9 @@ SUCCESS = "\x1b[1;32m [SUCCESS]: "
 MANIFEST_NAME = "manifest.json"
 COMPONENT_SECTION_NAME_IN_CONFIG = 'buildout_component'
 
-HOOK_FILE_TEMPALTE = """# -*- coding: utf-8 -*-
+HOOKS_DIR_NAME = "hooks"
+
+HOOK_FILE_TEMPLATE = """# -*- coding: utf-8 -*-
 #
 # Buildout Component Option Hook
 #
@@ -95,10 +93,10 @@ class ConfigSection(BaseProxyObject):
         return str(value).strip() if value is not None else ''
 
     def _render_operator(self, key, value):
-        return self.meta.operators.get(key, '=')
+        return self.operators.get(key, '=')
 
     def render(self, padding=4, template=''):
-        items = ['[{section}]'.format(section=self.meta.section)]
+        items = ['[{section}]'.format(section=self.section)]
 
         padding = ' ' * padding
         template = template or '{key} {operator} {values}'
@@ -174,17 +172,17 @@ class FinalBuildoutConfig(BaseBuildoutConfig):
         lines = []
 
         buildout = self.pop('buildout', None)
-        lines.extend(self._render_section('buildout', buildout))
+        lines.extend(self._render_section('buildout', buildout, padding=padding))
 
         versions = self.pop('versions', None)
-        lines.extend(self._render_section('versions', versions))
+        lines.extend(self._render_section('versions', versions, padding=padding))
 
         buildout_component = self.pop('buildout_component', None)
 
         for section, data in self.items():
-            lines.extend(self._render_section(section, data))
+            lines.extend(self._render_section(section, data, padding=padding))
 
-        lines.extend(self._render_section(COMPONENT_SECTION_NAME_IN_CONFIG, buildout_component))
+        lines.extend(self._render_section(COMPONENT_SECTION_NAME_IN_CONFIG, buildout_component, padding=padding))
 
         return '\n'.join(lines)
 
@@ -310,7 +308,7 @@ class Command(object):
                     })
                     manifest = Manifest(**manifest)
 
-                    manifest.hooks_dir_existed = os.path.exists(os.path.join(dir_path, 'hooks'))
+                    manifest.hooks_dir_existed = os.path.exists(os.path.join(dir_path, HOOKS_DIR_NAME))
 
                     all_component_list.append(manifest)
                     all_component_dict[manifest.id] = manifest
@@ -330,8 +328,9 @@ class Command(object):
                 if manifest.hooks_dir_existed is False:
                     raise ImportError()
 
-                module_name = '{module_name}.{component}.hooks.{option_name}'.format(
+                module_name = '{module_name}.{component}.{hooks}.{option_name}'.format(
                     module_name=module_name_prefix,
+                    hooks=HOOKS_DIR_NAME,
                     component=manifest.id,
                     option_name=option_name,
                 )
@@ -435,8 +434,7 @@ class Command(object):
             for key, value in collected_options.items():
                 final_options.put(manifest_id, key, value)
 
-        buildout_component = _ConfigSection()
-        buildout_component.meta.section = COMPONENT_SECTION_NAME_IN_CONFIG
+        buildout_component = _ConfigSection(section=COMPONENT_SECTION_NAME_IN_CONFIG)
         buildout_component['options'] = base64.b64encode(pickle.dumps(final_options)).decode('utf-8')
         buildout_component['create_time'] = repr(str(datetime.utcnow()))
 
@@ -528,11 +526,11 @@ class Command(object):
         with open(os.path.join(component_dir, MANIFEST_NAME), "w") as fp:
             fp.write(data)
 
-        hooks_dir = os.path.join(component_dir, "hooks")
+        hooks_dir = os.path.join(component_dir, HOOKS_DIR_NAME)
         os.makedirs(hooks_dir)
         for option in options:
             with open(os.path.join(hooks_dir, '{option}.py'.format(option=option)), "w") as fp:
-                fp.write(HOOK_FILE_TEMPALTE)
+                fp.write(HOOK_FILE_TEMPLATE)
 
         print(SUCCESS + "Component create success." + TERMINATOR)
 
