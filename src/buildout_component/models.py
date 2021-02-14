@@ -125,7 +125,9 @@ class ConfigItem(object):
 
 
 class ConfigList(ConfigItem, UserList):
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.allow_duplicate = False
 
 
 class ConfigComment(ConfigItem):
@@ -147,13 +149,54 @@ class ConfigComment(ConfigItem):
 
 class ConfigSection(SimpleMapping):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__()
+
+        another = dict(*args, **kwargs)
+        for key, value in another.items():
+            self[key] = self._merge_item(key, value)
         self.operators = OrderedDict()
-        self.operators.setdefault('eggs', '+=')
         self.operators.setdefault('parts', '+=')
 
+    def add_comment(self, value):
+        value = ConfigComment(value)
+        self._data[value] = value
 
-class BaseBuildoutConfig(SimpleMapping):
+    def _merge_item(self, key, value):
+        existed = self._data.get(key, ConfigList())
+
+        if isinstance(value, (tuple, list, ConfigList)):
+            existed.extend(value)
+        else:
+            existed.append(value)
+
+        return existed
+
+    def __setitem__(self, key, value):
+        if key != '_data':
+            value = self._merge_item(key, value)
+        super().__setitem__(key, value)
+
+    def merge(self, another):
+        if isinstance(another, (tuple, list)):
+            another = dict(another)
+        elif not isinstance(another, (dict, RootConfig, ConfigSection)):
+            return
+
+        all_keys = set(self.keys()) | set(another.keys())
+
+        for key in self.keys():
+            if key in another:
+                a_value = another.get(key)
+                self.__setitem__(key, a_value)
+            all_keys.remove(key)
+
+        for key in all_keys:
+            if key in another:
+                a_value = another.get(key)
+                self.__setitem__(key, a_value)
+
+
+class BaseRootConfig(SimpleMapping):
 
     def __getitem__(self, item):
         data = self._data
@@ -167,16 +210,13 @@ class BaseBuildoutConfig(SimpleMapping):
         if not isinstance(value, ConfigSection):
             value = ConfigSection(value)
         value.section = key
-        super().__setitem__(key, value)
+        self[key].merge(value)
 
 
-class BuildoutConfig(BaseBuildoutConfig):
+class RootConfig(BaseRootConfig):
     def __init__(self, manifest, *args, **kwargs):
         assert manifest is not None, "The `manifest` argument is required."
         assert isinstance(manifest, Manifest), "The `manifest` argument must be instance of `Manifest`"
 
         self.manifest = manifest
         super().__init__(*args, **kwargs)
-
-    def create_comment(self, value):
-        return ConfigComment(value)

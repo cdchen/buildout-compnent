@@ -50,9 +50,9 @@ class Context(object):
 
     def get_collected_option(self, manifest, name, default=None):
         manifest = _force_manifest_id(manifest)
-        options = self.collected.get(manifest, {})
-        return options.get(name, default=default)
+        options = self.collected.get(manifest, {}).get('options', {})
+        return options.get(name, default)
 
     def get_collected_config(self, manifest):
         manifest = _force_manifest_id(manifest)
-        return self.collected.get(manifest)
+        return self.collected.get(manifest, {}).get('config', {})

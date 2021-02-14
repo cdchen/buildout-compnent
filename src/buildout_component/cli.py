@@ -20,7 +20,7 @@ import wrapt as wrapt
 
 from buildout_component.contexts import Context
 from buildout_component.models import Manifest, Options, ConfigList, ConfigSection as _ConfigSection, \
-    BaseBuildoutConfig, BuildoutConfig
+    BaseRootConfig, RootConfig
 
 TERMINATOR = "\x1b[0m"
 ERROR = "\x1b[1;31m [ERROR]: "
@@ -56,39 +56,14 @@ class BaseProxyObject(wrapt.ObjectProxy):
 class ConfigSection(BaseProxyObject):
     _wrapped_class = _ConfigSection
 
-    def _merge_with_key_value(self, key, another):
-        my_value = self.get(key, None)
-        if my_value is None:
-            my_value = ConfigList()
-
-        if isinstance(another, (tuple, list, ConfigList)):
-            my_value.extend(another)
-        else:
-            my_value.append(another)
-        self[key] = my_value
-
-    def merge(self, another):
-        if not isinstance(another, (tuple, list, dict, BuildoutConfig, ConfigSection)):
-            return
-
-        another = dict(another)
-
-        all_keys = set(self.keys()) | set(another.keys())
-
-        for key in self.keys():
-            a_value = another.get(key, [])
-            self._merge_with_key_value(key, a_value)
-            all_keys.remove(key)
-
-        for key in all_keys:
-            a_value = another.get(key, [])
-            self._merge_with_key_value(key, a_value)
-
     def _render_key(self, key, value):
         return key
 
     def _render_value(self, key, value):
-        if isinstance(value, (tuple, list)):
+        if isinstance(value, (tuple, list, ConfigList)):
+            if getattr(value, 'allow_duplicate', False):
+                # If `allow_duplicate` is False.
+                value = list(OrderedDict.fromkeys(value))
             return [self._render_value(key, v) for v in value]
 
         return str(value).strip() if value is not None else ''
@@ -126,7 +101,7 @@ class ConfigSection(BaseProxyObject):
         return items
 
 
-class FinalBuildoutConfig(BaseBuildoutConfig):
+class FinalRootConfig(BaseRootConfig):
 
     def _merge_with_key_value(self, key, another):
         my_value = self.get(key, None)
@@ -139,23 +114,23 @@ class FinalBuildoutConfig(BaseBuildoutConfig):
         self[key] = my_value
 
     def merge(self, another):
-        if not isinstance(another, (tuple, list, dict, BaseBuildoutConfig, ConfigSection)):
+        if isinstance(another, (tuple, list)):
+            another = ConfigSection(dict(another))
+        elif not isinstance(another, (dict, BaseRootConfig, ConfigSection)):
             return
 
-        another = dict(another)
-
         all_keys = set(self.keys()) | set(another.keys())
-
         for key in self.keys():
-            a_value = another.get(key, None)
-            if a_value is not None:
-                self._merge_with_key_value(key, a_value)
+            if key in another:
+                section = self[key]
+                section.merge(another[key])
             all_keys.remove(key)
 
         for key in all_keys:
-            a_value = another.get(key, None)
-            if a_value is not None:
-                self._merge_with_key_value(key, a_value)
+            if not key in another:
+                continue
+            a_value = another.get(key)
+            self[key] = a_value
 
     def _render_section(self, section, data, padding=4, wrapper_class=ConfigSection):
         lines = []
@@ -362,7 +337,13 @@ class Command(object):
                 else:
                     raise ImportError()
 
-            except ImportError:
+            except ImportError as exc:
+                message = "Import `{component}.{option_name} fail: {exc}".format(
+                    component=manifest.id,
+                    option_name=option_name,
+                    exc=exc
+                )
+                sys.stderr.write(ERROR + message + TERMINATOR + "\n")
                 result = self._default_collect_result_handler(manifest, option_name)
             except Exception as exc:
                 message = "Execute `{component}.{option_name}` setup option fail: {exc}".format(
@@ -382,8 +363,8 @@ class Command(object):
 
             options.update(result)
 
-        if os.path.exists(hooks_dir):
-            py_cache_dir = os.path.join(hooks_dir, '__pycache__')
+        py_cache_dir = os.path.join(hooks_dir, '__pycache__')
+        if os.path.exists(py_cache_dir):
             shutil.rmtree(py_cache_dir, False)
 
         return options
@@ -397,7 +378,7 @@ class Command(object):
 
         if manifest.id not in self.context.collected:
             self.context.manifest = manifest.id
-            self.context.config = BuildoutConfig(manifest)
+            self.context.config = RootConfig(manifest)
             self.context.defaults = self.defaults.group_by.get(manifest.id, {})
 
             options = self._collect_options(manifest)
@@ -460,12 +441,11 @@ class Command(object):
         for manifest in self.all_component_list:
             self._setup_manifest(manifest)
 
-        final_buildout_config = FinalBuildoutConfig()
+        final_buildout_config = FinalRootConfig()
         final_options = Options()
 
         for manifest_id, collected_data in self.context.collected.items():
             collected_config = collected_data.get('config')
-
             final_buildout_config.merge(collected_config)
 
             collected_options = collected_data.get('options', {})

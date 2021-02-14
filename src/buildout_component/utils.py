@@ -15,7 +15,7 @@ class SimpleMapping(MutableMapping):
         self._data = OrderedDict(*args, **kwargs)
 
     def __delattr__(self, item):
-        if item == 'data':
+        if item == '_data':
             raise ImmutableValueError()
         super().__delattr__(item)
 
