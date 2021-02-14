@@ -10,6 +10,4 @@ def setup_option(context):
         'coo': 5678,
     }
 
-    return {
-        'option200': 1234,
-    }
+    return 1234

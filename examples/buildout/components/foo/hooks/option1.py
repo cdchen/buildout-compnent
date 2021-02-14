@@ -21,6 +21,4 @@ def setup_option(context):
     config['buildout'].operators['parts'] = '+='
     config['versions']['django'] = '>=1.8'
 
-    config['foo'] = {'boo': 1234}
-
     return datetime.utcnow()

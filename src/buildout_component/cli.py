@@ -383,6 +383,10 @@ class Command(object):
 
             options = self._collect_options(manifest)
 
+            # Set the options as default to manifest's section.
+            for key, value in options.items():
+                self.context.config[manifest.section].setdefault(key, value)
+
             self.context.collected[manifest.id] = OrderedDict({
                 'config': self.context.config,
                 'options': options
