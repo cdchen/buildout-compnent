@@ -1,6 +1,7 @@
 {
     "options": [
-        "option100"
+        "option100",
+        "option200"
     ],
     "dependencies": [
         "foo"

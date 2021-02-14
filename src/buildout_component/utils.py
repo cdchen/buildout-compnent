@@ -11,7 +11,6 @@ from buildout_component.errors import ImmutableValueError
 
 class SimpleMapping(MutableMapping):
     def __init__(self, *args, **kwargs):
-        # super().__init__(*args, **kwargs)
         self._data = OrderedDict(*args, **kwargs)
 
     def __delattr__(self, item):
