@@ -4,7 +4,6 @@
 # 
 # All rights reserved by Cd Chen.
 #
-import os
 from datetime import datetime
 
 
@@ -14,7 +13,7 @@ def setup_option(context):
     manifest = config.manifest
 
     config['buildout']['extends'] = [
-        os.path.join(manifest.component_dir, 'base.cfg'),
+        manifest.join('base.cfg'),
     ]
     config['buildout']['eggs'] = ['django', 'foo']
     config['buildout']['parts'] = 'foo'

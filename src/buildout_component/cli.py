@@ -6,6 +6,7 @@
 #
 import base64
 import configparser
+import glob
 import importlib
 import json
 import os
@@ -13,6 +14,7 @@ import pickle
 import re
 import shutil
 import sys
+import textwrap
 from collections import OrderedDict
 from datetime import datetime
 
@@ -148,6 +150,11 @@ class FinalRootConfig(BaseRootConfig):
         lines = []
 
         buildout = self.pop('buildout', None)
+        if buildout is not None:
+            buildout.operators.update({
+                'eggs': '+=',
+                'parts': '+=',
+            })
         lines.extend(self._render_section('buildout', buildout, padding=padding))
 
         versions = self.pop('versions', None)
@@ -195,7 +202,7 @@ class Command(object):
             '-o',
             '--output-file',
             help="The output file. default=%(default)s",
-            default='buildout/components/component.cfg',
+            default='buildout.cfg',
         )
 
         parser = argparse.ArgumentParser()
@@ -213,6 +220,16 @@ class Command(object):
             help="Include component that disabled.",
             default=False,
             action="store_true",
+        )
+        setup_parser.add_argument(
+            '--pre-extends',
+            help='Pre-extends configure files.',
+            nargs='*',
+        )
+        setup_parser.add_argument(
+            '--post-extends',
+            help='Post-extends configure files.',
+            nargs='*',
         )
         setup_parser.add_argument(
             'defaults',
@@ -296,7 +313,7 @@ class Command(object):
                     continue
 
                 manifest.update({
-                    'component_dir': dir_name,
+                    'component_dir': os.path.join(self.options.components_dir, dir_name),
                     'manifest_path': manifest_path,
                 })
 
@@ -377,7 +394,7 @@ class Command(object):
             self._setup_manifest(dependency)
 
         if manifest.id not in self.context.collected:
-            self.context.manifest = manifest.id
+            self.context.manifest = manifest
             self.context.config = RootConfig(manifest)
             self.context.defaults = self.defaults.group_by.get(manifest.id, {})
 
@@ -445,25 +462,50 @@ class Command(object):
         for manifest in self.all_component_list:
             self._setup_manifest(manifest)
 
-        final_buildout_config = FinalRootConfig()
+        final_root_config = FinalRootConfig()
         final_options = Options()
 
         for manifest_id, collected_data in self.context.collected.items():
             collected_config = collected_data.get('config')
-            final_buildout_config.merge(collected_config)
+            final_root_config.merge(collected_config)
 
             collected_options = collected_data.get('options', {})
 
             for key, value in collected_options.items():
                 final_options.put(manifest_id, key, value)
 
+        def _collect_extends_files(extends):
+            results = []
+            if extends:
+                if not isinstance(extends, (tuple, list)):
+                    extends = [extends]
+                for e in extends:
+                    results.extend(glob.glob(e, recursive=False))
+            return results
+
+        # Handle the extends
+        buildout_config = final_root_config['buildout']
+        pre_extends = _collect_extends_files(self.options.pre_extends)
+        post_extends = _collect_extends_files(self.options.post_extends)
+        if pre_extends or post_extends:
+            extends = []
+            if pre_extends:
+                extends.extend(pre_extends)
+            extends.extend(buildout_config['extends'])
+            if post_extends:
+                extends.extend(post_extends)
+            buildout_config._data['extends'] = extends
+
+        # Handle the buildout-component section.
         create_time = datetime.utcnow()
         buildout_component = _ConfigSection()
-        buildout_component['options'] = base64.b64encode(pickle.dumps(final_options)).decode('utf-8')
+
+        serialized_options = base64.b64encode(pickle.dumps(final_options)).decode('utf-8')
+        buildout_component['options'] = textwrap.fill(serialized_options, 60).split('\n')
         buildout_component['create_time'] = repr(str(create_time))
 
-        final_buildout_config[COMPONENT_SECTION_NAME_IN_CONFIG] = buildout_component
-        rendered_data = final_buildout_config.render()
+        final_root_config[COMPONENT_SECTION_NAME_IN_CONFIG] = buildout_component
+        rendered_data = final_root_config.render()
 
         action = "Update" if os.path.exists(self.options.output_file) else "Create"
         with open(self.options.output_file, 'w') as fp:
